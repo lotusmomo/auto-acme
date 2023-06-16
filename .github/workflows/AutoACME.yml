@@ -1,0 +1,60 @@
+name: Auto ACME
+
+on:
+  schedule:
+    # Set crontab at 8:00 of Asia/Shanghai everyday
+    - cron: "0 0 * * 0"
+  watch:
+    types: [started]
+  push:
+    branches:
+      - main
+
+env:
+  ACME:         /home/runner/.acme.sh/acme.sh
+  EMAIL:        ${{ secrets.EMAIL }}
+  SERVER:       ${{ vars.SERVER }}
+  DNS:          ${{ vars.DNS }}
+  DNSAPI:       ${{ secrets.DNSAPI }}
+  DOMAINS:      ${{ vars.DOMAINS }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: 🌈Checkout
+      uses: actions/checkout@v2
+
+    - name: 🚚Install & Configure ACME.SH
+      run: |
+        curl https://get.acme.sh | sh -s email= $EMAIL
+        echo "$DNSAPI" >> /home/runner/.acme.sh/account.conf
+
+    - name: 📃Issue & Deploy Certificates
+      run: |
+        for domain in $DOMAINS; do
+          domain_args="$domain_args -d $domain"
+        done
+        for domain in $DOMAINS; do
+          domain_args="$domain_args -d *.$domain"
+        done
+        command="${ACME} --issue --server ${SERVER} --dns $DNS --force${domain_args}"
+        echo "Issue command: $command"
+        $command -k 2048
+        $command -k ec-256
+        dir_perfix=$(echo "$DOMAINS" | awk '{print $1}')
+        cp -v /home/runner/.acme.sh/${dir_perfix}/fullchain.cer         /home/runner/full.cer
+        cp -v /home/runner/.acme.sh/${dir_perfix}/${dir_perfix}.key     /home/runner/full.key
+        cp -v /home/runner/.acme.sh/${dir_perfix}_ecc/fullchain.cer     /home/runner/full_ecc.cer
+        cp -v /home/runner/.acme.sh/${dir_perfix}_ecc/${dir_perfix}.key /home/runner/full_ecc.key
+
+    - name: 📎Upload Certificates & Keys
+      uses: actions/upload-artifact@v3
+      with:
+        name: Certs
+        path: |
+          /home/runner/full.cer
+          /home/runner/full.key
+          /home/runner/full_ecc.cer
+          /home/runner/full_ecc.key
